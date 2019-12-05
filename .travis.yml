@@ -1,68 +1,62 @@
-# Travis CI config for Snorkel, a training data creation and management
-# system focused on information extraction
+# Only run CI on master, release branches, tags, and PRs
+if: tag IS present OR type = pull_request OR ((branch = master OR branch =~ release-*) AND type = push)
 
-dist: trusty
-sudo: false  # to use container-based infra, see: http://docs.travis-ci.com/user/migrating-from-legacy/
-language: generic
-env:
-  matrix:
-    - PYTHON_VERSION=2.7
-    - PYTHON_VERSION=3.6
+# Main dist is Python
+language: python
 
-cache:
-  directories:
-    - download
+# Cache package wheels
+cache: pip
 
+# python3.7 only available on xenial
+dist: xenial
+
+jobs:
+  include:
+    - if: type = pull_request
+      name: "Python 3.6: unit tests"
+      python: 3.6
+      env: TOXENV=coverage,doctest,type,check TOX_INSTALL_DIR=.env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+    - if: type = pull_request
+      name: "Python 3.7: unit tests"
+      python: 3.7
+      env: TOXENV=coverage,doctest,type,check TOX_INSTALL_DIR=.env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+    - if: type != pull_request
+      name: "Python 3.6: unit + integration tests"
+      python: 3.6
+      env: TOXENV=coverage,complex,spark,doctest,type,check TOX_INSTALL_DIR=.env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+    - if: type != pull_request
+      name: "Python 3.7: unit + integration tests"
+      python: 3.7
+      env: TOXENV=coverage,complex,spark,doctest,type,check TOX_INSTALL_DIR=.env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+
+# Install JDK8 for PySpark tests
 before_install:
-  - travis_retry
-    wget https://repo.continuum.io/miniconda/Miniconda3-4.5.1-Linux-x86_64.sh
-    --output-document=miniconda.sh
-  - bash miniconda.sh -b -p $HOME/miniconda
-  - source $HOME/miniconda/etc/profile.d/conda.sh
-  - conda config --set always_yes yes --set changeps1 no
-  - conda info --all
+  - sudo add-apt-repository -y ppa:openjdk-r/ppa
+  - sudo apt-get -qq update
+  - sudo apt-get install -y openjdk-8-jdk --no-install-recommends
+  - sudo update-java-alternatives -s java-1.8.0-openjdk-amd64
 
 install:
-  - sed --in-place 's/- python/- python='"$PYTHON_VERSION"'/' environment.yml
-  - conda env create --quiet --file=environment.yml
-  - conda activate snorkel
-  - pip install .
-  - conda list
+  - pip install -U pip setuptools
+  - pip install -U tox==3.12.0
+  - pip install -U codecov
+  - tox --notest
 
 script:
+  - tox
 
-  # Run generative model test modules
-  - python test/learning/test_gen_learning.py
-  - python test/learning/test_supervised.py
-  - python test/learning/test_categorical.py
+after_success:
+  - travis_retry codecov
 
-  # Run PyTorch test modules
-  - python test/learning/pytorch/test_lstm.py
-  - python test/learning/pytorch/test_model_reloading.py
-  - python test/learning/pytorch/test_determinism.py
-
-  # Runs intro tutorial notebooks
-  - runipy tutorials/intro/Intro_Tutorial_1.ipynb
-  - runipy tutorials/intro/Intro_Tutorial_2.ipynb
-  - runipy tutorials/intro/Intro_Tutorial_3.ipynb
-
-  # Run advanced notebooks
-  - runipy tutorials/advanced/Categorical_Classes.ipynb
-  - runipy tutorials/advanced/Structure_Learning.ipynb
-
-  # Run CDR tutorials
-  - runipy tutorials/cdr/CDR_Tutorial_1.ipynb
-  - runipy tutorials/cdr/CDR_Tutorial_2.ipynb
-  - runipy tutorials/cdr/CDR_Tutorial_3.ipynb
-
-  # Run Image tutorial
-  - runipy tutorials/images/Images_Tutorial.ipynb
-
-  # TODO check outputs, upload results, etc.
-  # for more ideas, see: https://github.com/rossant/ipycache/issues/7
-
-  # Build Sphinx documentation
-  # # Disabled due to the following error:
-  # # make: *** docs: No such file or directory.  Stop.
-  # - conda install --channel=conda-forge sphinx=1.7.4
-  # - make --directory=docs html
+notifications:
+  email: 
+    recipients:
+      secure: "d91inMv9lhRuSDEbT+aRtsrGC0M8VSvloPSoDt1k9k1y1EuduRF3+QuE3kd1T2sz0ARypWvDj1M89Gyfnbdrg/rphmBIIOaLQdjA+zueid6Dpc/6Xxe2nnXCjS+7PL7CkKjHo7iE3XW97Hep7WUEv3A60bD5O9kx0mS9qbKeO5KJTmb7zctVF6s1jz8VGewS+XybDW5ZJ0KDVhvlvunJt+PCDXfGAFxdEuXGF6dOtyAXzZ5h7aRooj06QQPyDO8sDmpbwritR2SXw3OBZi3xO4qZOfLyFWtuo6VvMRTaNa4UNnyP0QGZbHuzZe6/SAqPrU417XwuklVHJQchRFPFrQxcRgNKjOXgD8KM5cuQJJEJIIpppEp0fO902F13Kci9D4Fysd2rCFZWzStTyeyDWYMPtkiNZfWlBVxPUFQcXRAXyz3e7kz6kIVUGnBiuruYrmBb5iuz9dlB8vJfeIml4iAoPnUs1J+NNiirqqRPt629Y3LaISWxcIN/v+oQp+W1XxmwjSf/FhpTDsqG1if7ks4VMjdoFgR76bZ8qBiKBLsdggJPyTljoOs+Tnhe18P2szfNyL47u+/QaZtliR2+bS7dmr9Sd5ol4cfb71xgGJBcJGf3e5OcgAgy3vZdshEGTGHxN+ykRRK4iOcFPjnyLwJmUUEbbn6jpFE0H3N1r2s="
+    on_success: change # default: change [change, always, never]
+    on_failure: change # default: always
+  slack:
+    on_success: change # default: change
+    on_failure: change # default: always
+    on_pull_requests: false
+    room:
+      secure: "jUQz1DEG+BfCpVYOOolZgyhMddv4arkx0/VY5AQveST1oo3jVsFkHhLzwFTjDnh+YSEVReHGV5BrLmf2Va5jq03AKUUA3CAvcHlZVQElbo06NE1zbtmTXlllSc8+34Fn3SjfcKs565jHTP2YxpK4cEB0rUN2fBimKqGHdzEqCwBJ++6PiWFgudnoXafTTkfKU2DFiyE5V+PpNiLEdwtxDwJr4HZnbBdkd+yXLyrzVsCaQp0D0lPQZyB0pMJBk/awnkQg9OVsM+9VXZtPOeDd0oPAXxp6m+pnVR2dNRZoKlxEEWEzobkMj44amE0PPnE/YfsBE1T9MytJJ9XsXDwswrAmuHGoEKp/lUySlfhkCWfi6/JXy0NFAXTzWbau4Tlr3bqA1vKieDLy6OV4GbOK3BlDIdhk+toHU4zCWLtn1PT9+Hey6ajdNrpwUKkbM8wBuccqSw6bukFl1E2/UW8hqG1iYCMq86+I1UKalcd/HCSrPraioFic6rPs0f5YvQePjd2o/c00n+fbDgmj2oCrXZpnyc4LYbRO4c8pT7F0ozwhRNA/LtpoKDcZCE3MTBtDR/Nh6JZaLsjpSEE1MUsAUIEd17zfkWlig/mWD9IepMgTsnNARmXOeBM+Ih/VoRECXmlcb/GQcRIc8/8FiNW2j+V6q686nK701WYh5hQqVpU="
